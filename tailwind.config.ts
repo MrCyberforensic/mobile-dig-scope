@@ -57,6 +57,13 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        forensic: {
+          success: "hsl(var(--forensic-success))",
+          warning: "hsl(var(--forensic-warning))",
+          error: "hsl(var(--forensic-error))",
+          info: "hsl(var(--forensic-info))",
+          secure: "hsl(var(--forensic-secure))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
