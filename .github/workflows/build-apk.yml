@@ -1,19 +1,22 @@
-name: Build Android APK
+name: Cloud Android APK Builder (No Local SDK Needed)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+
+env:
+  ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+  JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -27,39 +30,75 @@ jobs:
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      # 👇 Add Android platform if missing
+      # --- install Android SDK ---
+      - name: Install Android SDK
+        run: |
+          set -e
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          cd "$ANDROID_SDK_ROOT"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmd.zip
+          unzip -q cmd.zip -d cmdline-tools
+          mv cmdline-tools/cmdline-tools cmdline-tools/latest
+          yes | cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses
+          cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          echo "Android SDK installed"
+
+      # --- create Android project if missing ---
       - name: Add Android platform (if missing)
         run: |
           if [ ! -d "android" ]; then
-            npx cap add android
+            echo "Creating new Android platform..."
+            npx cap add android || true
           fi
           npx cap sync android
 
-      - name: Set up JDK for Gradle
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
+      # --- inject minimal Gradle build if still empty ---
+      - name: Ensure Gradle build structure
+        run: |
+          cd android
+          if [ ! -f settings.gradle ]; then
+            echo "rootProject.name='app'" > settings.gradle
+          fi
+          if [ ! -f build.gradle ]; then
+            cat > build.gradle <<'EOF'
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.1.1' }
+}
+apply plugin: 'com.android.application'
+android {
+    compileSdkVersion 34
+    defaultConfig {
+        applicationId "com.example.app"
+        minSdkVersion 24
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes { release { minifyEnabled false } }
+}
+repositories { google(); mavenCentral() }
+dependencies {}
+EOF
+          fi
 
-      # 👇 Ensure Gradle wrapper exists
       - name: Ensure Gradle wrapper
         run: |
           cd android
-          if [ ! -f "./gradlew" ]; then
-            echo "Gradle wrapper not found — downloading..."
-            wget https://services.gradle.org/distributions/gradle-8.7-bin.zip -O gradle.zip
-            unzip gradle.zip -d /tmp/gradle
-            /tmp/gradle/gradle-8.7/bin/gradle wrapper
+          if [ ! -f gradlew ]; then
+            wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp/
+            PATH="/tmp/gradle-8.7/bin:$PATH"
+            gradle wrapper --gradle-version 8.7
           fi
           chmod +x gradlew
 
-      # 👇 Build the APK
       - name: Build APK
         run: |
           cd android
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug.apk
