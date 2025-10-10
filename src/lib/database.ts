@@ -16,7 +16,7 @@ export interface ForensicCase {
 export interface Artifact {
   id: string;
   caseId: string;
-  type: 'contact' | 'sms' | 'call_log' | 'app_data' | 'browser_history' | 'photo' | 'video' | 'file' | 'location' | 'deleted_file';
+  type: 'contact' | 'sms' | 'call_log' | 'app_data' | 'browser_history' | 'photo' | 'video' | 'file' | 'location' | 'deleted_file' | 'device_info';
   name: string;
   filePath: string;
   sha256: string;
@@ -31,7 +31,7 @@ export interface Artifact {
 export interface CustodyLog {
   id: string;
   caseId: string;
-  action: 'case_created' | 'acquisition_started' | 'acquisition_completed' | 'artifact_added' | 'report_generated' | 'case_exported';
+  action: 'case_created' | 'acquisition_started' | 'acquisition_completed' | 'artifact_added' | 'report_generated' | 'case_exported' | 'target_acquisition_started' | 'target_acquisition_completed';
   examiner: string;
   timestamp: string;
   details: string;
