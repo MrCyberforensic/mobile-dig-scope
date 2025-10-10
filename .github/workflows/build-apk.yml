@@ -27,8 +27,13 @@ jobs:
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      - name: Sync Capacitor Android
-        run: npx cap sync android
+      # 👇 Add or sync Android platform automatically
+      - name: Add Android platform (if missing)
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
 
       - name: Set up JDK for Gradle
         uses: actions/setup-java@v4
@@ -36,9 +41,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # 👇 Build the APK
       - name: Build APK
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK artifact
