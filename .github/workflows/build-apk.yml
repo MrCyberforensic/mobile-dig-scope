@@ -27,7 +27,7 @@ jobs:
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      # 👇 Add or sync Android platform automatically
+      # 👇 Add Android platform if missing
       - name: Add Android platform (if missing)
         run: |
           if [ ! -d "android" ]; then
@@ -41,11 +41,22 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # 👇 Ensure Gradle wrapper exists
+      - name: Ensure Gradle wrapper
+        run: |
+          cd android
+          if [ ! -f "./gradlew" ]; then
+            echo "Gradle wrapper not found — downloading..."
+            wget https://services.gradle.org/distributions/gradle-8.7-bin.zip -O gradle.zip
+            unzip gradle.zip -d /tmp/gradle
+            /tmp/gradle/gradle-8.7/bin/gradle wrapper
+          fi
+          chmod +x gradlew
+
       # 👇 Build the APK
       - name: Build APK
         run: |
           cd android
-          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK artifact
