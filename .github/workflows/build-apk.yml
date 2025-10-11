@@ -3,10 +3,6 @@ name: Auto Build APK (No Local Android Studio Needed)
 on:
   workflow_dispatch:
 
-env:
-  ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
-  JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,6 +32,7 @@ jobs:
       - name: Install Android SDK
         run: |
           set -e
+          export ANDROID_SDK_ROOT=$HOME/android-sdk
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           cd "$ANDROID_SDK_ROOT"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmd.zip
@@ -45,7 +42,7 @@ jobs:
           cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       # ---------------------------
-      # Create or repair Android platform
+      # Add Android platform (if missing)
       # ---------------------------
       - name: Add Android platform (if missing)
         run: |
@@ -67,7 +64,7 @@ jobs:
           fi
 
       # ---------------------------
-      # Create Gradle wrapper
+      # Ensure Gradle wrapper
       # ---------------------------
       - name: Ensure Gradle wrapper
         run: |
@@ -78,7 +75,7 @@ jobs:
           chmod +x gradlew
 
       # ---------------------------
-      # Build the APK
+      # Build APK
       # ---------------------------
       - name: Build APK
         run: |
