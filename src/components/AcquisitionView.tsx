@@ -94,11 +94,15 @@ export default function AcquisitionView({ caseData, database, onViewArtifacts }:
   const startAcquisition = async () => {
     if (!selectedDevice) return;
     
+    // TODO: Implement password prompt dialog for case access
+    const password = prompt('Enter case password to start acquisition:');
+    if (!password) return;
+    
     setIsAcquiring(true);
     setHasCompleted(false);
     
     try {
-      await acquisitionEngine.startLogicalAcquisition(caseData.id, selectedDevice);
+      await acquisitionEngine.startLogicalAcquisition(caseData.id, selectedDevice, password);
       setHasCompleted(true);
     } catch (error) {
       setAcquisitionLogs(prev => [...prev, `ERROR: ${error}`]);

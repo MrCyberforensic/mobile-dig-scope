@@ -13,9 +13,10 @@ export class ForensicCrypto {
   }
 
   static deriveKey(password: string, salt: string): string {
+    // SECURITY: Increased to 100,000 iterations for better protection against brute force
     return CryptoJS.PBKDF2(password, salt, {
       keySize: 256 / 32,
-      iterations: 10000
+      iterations: 100000
     }).toString();
   }
 

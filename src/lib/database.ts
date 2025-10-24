@@ -9,8 +9,10 @@ export interface ForensicCase {
   status: 'active' | 'completed' | 'archived';
   deviceInfo?: string;
   legalAuthorization?: string;
-  encryptionKey?: string;
-  encryptionSalt?: string;
+  // SECURITY: Encryption key is NEVER stored - only salt for key derivation
+  encryptionSalt: string;
+  // SECURITY: Hash of derived key for password verification (not the key itself)
+  passwordVerificationHash: string;
 }
 
 export interface Artifact {
@@ -81,10 +83,24 @@ export class ForensicDatabase {
     });
   }
 
-  async createCase(caseData: Omit<ForensicCase, 'id' | 'createdAt' | 'updatedAt'>): Promise<ForensicCase> {
+  /**
+   * Create a new forensic case with password-based encryption
+   * SECURITY: Password is used to derive encryption key, never stored
+   */
+  async createCase(
+    caseData: Omit<ForensicCase, 'id' | 'createdAt' | 'updatedAt' | 'encryptionSalt' | 'passwordVerificationHash'>,
+    password: string
+  ): Promise<{ case: ForensicCase; encryptionKey: string }> {
     const now = new Date().toISOString();
+    
+    // SECURITY: Generate cryptographically secure salt
     const salt = ForensicCrypto.generateSalt();
-    const encryptionKey = ForensicCrypto.deriveKey(caseData.name + now, salt);
+    
+    // SECURITY: Derive key from user password (100,000 PBKDF2 iterations)
+    const encryptionKey = ForensicCrypto.deriveKey(password, salt);
+    
+    // SECURITY: Store hash of key for password verification (not the key itself)
+    const passwordVerificationHash = ForensicCrypto.calculateSHA256(encryptionKey);
     
     const forensicCase: ForensicCase = {
       id: crypto.randomUUID(),
@@ -92,7 +108,7 @@ export class ForensicDatabase {
       createdAt: now,
       updatedAt: now,
       encryptionSalt: salt,
-      encryptionKey
+      passwordVerificationHash
     };
 
     await this.storeData('cases', forensicCase);
@@ -102,11 +118,12 @@ export class ForensicDatabase {
       caseId: forensicCase.id,
       action: 'case_created',
       examiner: caseData.examiner,
-      details: `Case "${caseData.name}" created`,
+      details: `Case "${caseData.name}" created with AES-256 encryption`,
       hmacKey: encryptionKey
     });
 
-    return forensicCase;
+    // Return case and key (key only exists in memory during this operation)
+    return { case: forensicCase, encryptionKey };
   }
 
   async getCases(): Promise<ForensicCase[]> {
@@ -130,7 +147,14 @@ export class ForensicDatabase {
     await this.storeData('cases', updatedCase);
   }
 
-  async addArtifact(artifact: Omit<Artifact, 'id' | 'createdAt'>): Promise<Artifact> {
+  /**
+   * Add artifact to case with custody logging
+   * SECURITY: Requires encryption key to be provided (not retrieved from storage)
+   */
+  async addArtifact(
+    artifact: Omit<Artifact, 'id' | 'createdAt'>,
+    encryptionKey: string
+  ): Promise<Artifact> {
     const fullArtifact: Artifact = {
       id: crypto.randomUUID(),
       ...artifact,
@@ -141,13 +165,13 @@ export class ForensicDatabase {
 
     // Create custody log
     const forensicCase = await this.getCase(artifact.caseId);
-    if (forensicCase?.encryptionKey) {
+    if (forensicCase) {
       await this.createCustodyLog({
         caseId: artifact.caseId,
         action: 'artifact_added',
         examiner: forensicCase.examiner,
         details: `Artifact "${artifact.name}" added (${artifact.type})`,
-        hmacKey: forensicCase.encryptionKey
+        hmacKey: encryptionKey
       });
     }
 

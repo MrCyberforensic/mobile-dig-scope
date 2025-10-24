@@ -16,17 +16,22 @@ export class ReportGenerator {
     this.database = database;
   }
 
-  async generateReport(caseId: string, examinerSignature?: string): Promise<ReportData> {
+  async generateReport(caseId: string, password: string, examinerSignature?: string): Promise<ReportData> {
     const forensicCase = await this.database.getCase(caseId);
     if (!forensicCase) throw new Error('Case not found');
+
+    const encryptionKey = ForensicCrypto.deriveKey(password, forensicCase.encryptionSalt);
+    const verificationHash = ForensicCrypto.calculateSHA256(encryptionKey);
+    if (verificationHash !== forensicCase.passwordVerificationHash) {
+      throw new Error('Invalid password');
+    }
 
     const artifacts = await this.database.getArtifacts(caseId);
     const custodyLogs = await this.database.getCustodyLogs(caseId);
 
-    // Verify custody log integrity
     const verifiedLogs = await Promise.all(
       custodyLogs.map(async (log) => {
-        const isValid = await this.database.verifyCustodyLogIntegrity(log, forensicCase.encryptionKey!);
+        const isValid = await this.database.verifyCustodyLogIntegrity(log, encryptionKey);
         return { ...log, isVerified: isValid };
       })
     );

@@ -51,11 +51,20 @@ export class AcquisitionEngine {
     };
   }
 
-  async startLogicalAcquisition(caseId: string): Promise<void> {
+  async startLogicalAcquisition(caseId: string, password: string): Promise<void> {
     this.updateProgress('Initializing acquisition...', 0, 'Device scan', 0, 100);
 
     const forensicCase = await this.database.getCase(caseId);
     if (!forensicCase) throw new Error('Case not found');
+
+    // SECURITY: Derive encryption key from password
+    const encryptionKey = ForensicCrypto.deriveKey(password, forensicCase.encryptionSalt);
+    
+    // Verify password is correct
+    const verificationHash = ForensicCrypto.calculateSHA256(encryptionKey);
+    if (verificationHash !== forensicCase.passwordVerificationHash) {
+      throw new Error('Invalid password');
+    }
 
     try {
       // Create custody log for acquisition start
@@ -64,17 +73,17 @@ export class AcquisitionEngine {
         action: 'acquisition_started',
         examiner: forensicCase.examiner,
         details: 'Logical acquisition started',
-        hmacKey: forensicCase.encryptionKey!
+        hmacKey: encryptionKey
       });
 
       // Simulate acquisition stages
-      await this.acquireContacts(caseId, forensicCase.encryptionKey!);
-      await this.acquireMessages(caseId, forensicCase.encryptionKey!);
-      await this.acquireCallLogs(caseId, forensicCase.encryptionKey!);
-      await this.acquireInstalledApps(caseId, forensicCase.encryptionKey!);
-      await this.acquirePhotos(caseId, forensicCase.encryptionKey!);
-      await this.acquireBrowserHistory(caseId, forensicCase.encryptionKey!);
-      await this.acquireLocationData(caseId, forensicCase.encryptionKey!);
+      await this.acquireContacts(caseId, encryptionKey);
+      await this.acquireMessages(caseId, encryptionKey);
+      await this.acquireCallLogs(caseId, encryptionKey);
+      await this.acquireInstalledApps(caseId, encryptionKey);
+      await this.acquirePhotos(caseId, encryptionKey);
+      await this.acquireBrowserHistory(caseId, encryptionKey);
+      await this.acquireLocationData(caseId, encryptionKey);
 
       // Create custody log for acquisition completion
       await this.database.createCustodyLog({
@@ -82,7 +91,7 @@ export class AcquisitionEngine {
         action: 'acquisition_completed',
         examiner: forensicCase.examiner,
         details: 'Logical acquisition completed successfully',
-        hmacKey: forensicCase.encryptionKey!
+        hmacKey: encryptionKey
       });
 
       this.updateProgress('Acquisition completed', 100, 'Complete', 100, 100);
@@ -114,7 +123,7 @@ export class AcquisitionEngine {
       size: contactsData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockContacts.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Contacts acquired', 20, 'Contacts', 100, 100);
   }
@@ -141,7 +150,7 @@ export class AcquisitionEngine {
       size: messagesData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockMessages.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Messages acquired', 40, 'SMS/MMS', 100, 100);
   }
@@ -168,7 +177,7 @@ export class AcquisitionEngine {
       size: callLogsData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockCallLogs.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Call logs acquired', 60, 'Call Logs', 100, 100);
   }
@@ -195,7 +204,7 @@ export class AcquisitionEngine {
       size: appsData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockApps.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Applications acquired', 80, 'Applications', 100, 100);
   }
@@ -221,7 +230,7 @@ export class AcquisitionEngine {
       size: photosData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockPhotos.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Photos acquired', 90, 'Media Files', 100, 100);
   }
@@ -247,7 +256,7 @@ export class AcquisitionEngine {
       size: historyData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockHistory.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Browser history acquired', 98, 'Browser Data', 100, 100);
   }
@@ -273,7 +282,7 @@ export class AcquisitionEngine {
       size: locationsData.length,
       isEncrypted: true,
       metadata: JSON.stringify({ count: mockLocations.length })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Location data acquired', 100, 'Location Data', 100, 100);
   }

@@ -38,12 +38,21 @@ export class TargetAcquisitionEngine {
     return status.connected;
   }
 
-  async startLogicalAcquisition(caseId: string, targetDevice: TargetDeviceInfo): Promise<void> {
+  async startLogicalAcquisition(caseId: string, targetDevice: TargetDeviceInfo, password: string): Promise<void> {
     this.isRunning = true;
     this.updateProgress('Initializing target device acquisition...', 0, 'Connection', 0, 100);
 
     const forensicCase = await this.database.getCase(caseId);
     if (!forensicCase) throw new Error('Case not found');
+
+    // SECURITY: Derive encryption key from password
+    const encryptionKey = ForensicCrypto.deriveKey(password, forensicCase.encryptionSalt);
+    
+    // Verify password is correct
+    const verificationHash = ForensicCrypto.calculateSHA256(encryptionKey);
+    if (verificationHash !== forensicCase.passwordVerificationHash) {
+      throw new Error('Invalid password');
+    }
 
     try {
       // Create custody log
@@ -52,19 +61,19 @@ export class TargetAcquisitionEngine {
         action: 'target_acquisition_started',
         examiner: forensicCase.examiner,
         details: `Target device: ${targetDevice.manufacturer} ${targetDevice.model} (${targetDevice.serial})`,
-        hmacKey: forensicCase.encryptionKey!
+        hmacKey: encryptionKey
       });
 
       // Acquisition stages
-      await this.acquireDeviceInfo(caseId, forensicCase.encryptionKey!, targetDevice);
-      await this.acquireContacts(caseId, forensicCase.encryptionKey!);
-      await this.acquireMessages(caseId, forensicCase.encryptionKey!);
-      await this.acquireCallLogs(caseId, forensicCase.encryptionKey!);
-      await this.acquireInstalledApps(caseId, forensicCase.encryptionKey!);
-      await this.acquireMediaFiles(caseId, forensicCase.encryptionKey!);
-      await this.acquireAppData(caseId, forensicCase.encryptionKey!);
-      await this.acquireBrowserData(caseId, forensicCase.encryptionKey!);
-      await this.acquireLocationData(caseId, forensicCase.encryptionKey!);
+      await this.acquireDeviceInfo(caseId, encryptionKey, targetDevice);
+      await this.acquireContacts(caseId, encryptionKey);
+      await this.acquireMessages(caseId, encryptionKey);
+      await this.acquireCallLogs(caseId, encryptionKey);
+      await this.acquireInstalledApps(caseId, encryptionKey);
+      await this.acquireMediaFiles(caseId, encryptionKey);
+      await this.acquireAppData(caseId, encryptionKey);
+      await this.acquireBrowserData(caseId, encryptionKey);
+      await this.acquireLocationData(caseId, encryptionKey);
 
       // Completion log
       await this.database.createCustodyLog({
@@ -72,7 +81,7 @@ export class TargetAcquisitionEngine {
         action: 'target_acquisition_completed',
         examiner: forensicCase.examiner,
         details: 'Target device acquisition completed successfully',
-        hmacKey: forensicCase.encryptionKey!
+        hmacKey: encryptionKey
       });
 
       this.updateProgress('Acquisition completed', 100, 'Complete', 100, 100);
@@ -110,7 +119,7 @@ export class TargetAcquisitionEngine {
         manufacturer: deviceInfo.manufacturer,
         serial: deviceInfo.serial
       })
-    });
+    }, encryptionKey);
 
     this.updateProgress('Device info acquired', 10, 'Device Info', 100, 100);
   }
@@ -145,7 +154,7 @@ export class TargetAcquisitionEngine {
         size: mockData.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device', dbPath: contactsDbPath })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Contacts extracted', 25, 'Contacts', 100, 100);
     } catch (error) {
@@ -177,7 +186,7 @@ export class TargetAcquisitionEngine {
         size: mockData.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device', dbPath: smsDbPath })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Messages extracted', 40, 'Messages', 100, 100);
     } catch (error) {
@@ -208,7 +217,7 @@ export class TargetAcquisitionEngine {
         size: mockData.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device' })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Call logs extracted', 55, 'Call Logs', 100, 100);
     } catch (error) {
@@ -234,7 +243,7 @@ export class TargetAcquisitionEngine {
         size: appList.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device', command: 'pm list packages' })
-      });
+      }, encryptionKey);
 
       this.updateProgress('App list extracted', 65, 'Applications', 100, 100);
     } catch (error) {
@@ -262,7 +271,7 @@ export class TargetAcquisitionEngine {
         size: data.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device', path: '/sdcard/DCIM' })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Media indexed', 75, 'Media', 100, 100);
     } catch (error) {
@@ -301,7 +310,7 @@ export class TargetAcquisitionEngine {
           size: data.length,
           isEncrypted: true,
           metadata: JSON.stringify({ app: app.name, package: app.package })
-        });
+        }, encryptionKey);
       } catch (error) {
         console.error(`Failed to acquire ${app.name}:`, error);
       }
@@ -332,7 +341,7 @@ export class TargetAcquisitionEngine {
         size: data.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device' })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Browser data extracted', 95, 'Browser', 100, 100);
     } catch (error) {
@@ -362,7 +371,7 @@ export class TargetAcquisitionEngine {
         size: data.length,
         isEncrypted: true,
         metadata: JSON.stringify({ source: 'target_device' })
-      });
+      }, encryptionKey);
 
       this.updateProgress('Location data extracted', 100, 'Location', 100, 100);
     } catch (error) {
