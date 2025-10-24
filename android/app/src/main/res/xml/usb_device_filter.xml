@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Filter for Android Debug Bridge devices -->
+    <!-- This allows the app to detect any USB device -->
+    <usb-device />
+</resources>
