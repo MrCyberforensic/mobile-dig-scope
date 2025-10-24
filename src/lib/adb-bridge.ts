@@ -1,6 +1,22 @@
 // ADB Bridge for USB OTG device-to-device communication
 // Requires native Android module implementation
 
+// SECURITY: Allowed paths for forensic acquisition - prevents path traversal and command injection
+const ALLOWED_PATH_PATTERNS = [
+  /^\/sdcard\/[a-zA-Z0-9_\-\/\.]+$/, // SD card storage
+  /^\/storage\/emulated\/0\/[a-zA-Z0-9_\-\/\.]+$/, // Emulated storage
+  /^\/data\/data\/[a-z][a-z0-9._]*\/databases\/[a-zA-Z0-9_\-\.]+\.db$/, // App databases
+  /^\/data\/data\/[a-z][a-z0-9._]*\/files\/[a-zA-Z0-9_\-\/\.]+$/, // App files
+];
+
+// SECURITY: Whitelist of allowed ADB commands for forensic purposes
+const ALLOWED_COMMANDS = {
+  getprop: /^getprop ro\.[a-z0-9._]+$/,
+  pm_list: /^pm list packages(?:\s+-[a-z])?$/,
+  su_id: /^su -c "id"$/,
+  ls: /^ls -la ([a-zA-Z0-9_\-\/\.]+)$/,
+} as const;
+
 export interface TargetDeviceInfo {
   serial: string;
   model: string;
@@ -132,9 +148,31 @@ export class ADBBridge {
   }
 
   /**
-   * Execute ADB shell command on target device
+   * Validate and sanitize ADB command before execution
+   * SECURITY: Prevents command injection attacks
    */
-  async executeCommand(command: string): Promise<string> {
+  private validateCommand(command: string): void {
+    // Check if command matches any allowed pattern
+    const isAllowed = Object.values(ALLOWED_COMMANDS).some(pattern => pattern.test(command));
+    
+    if (!isAllowed) {
+      throw new Error(`Security: Command not allowed for forensic acquisition: ${command}`);
+    }
+
+    // Additional checks for dangerous characters
+    const dangerousChars = /[;&|<>$`(){}[\]\\]/;
+    if (dangerousChars.test(command)) {
+      throw new Error('Security: Command contains forbidden characters');
+    }
+  }
+
+  /**
+   * Execute ADB shell command on target device with validation
+   * SECURITY: All commands are validated against whitelist before execution
+   */
+  private async executeCommandInternal(command: string): Promise<string> {
+    this.validateCommand(command);
+    
     try {
       // @ts-ignore
       if (window.AndroidADBBridge) {
@@ -143,7 +181,7 @@ export class ADBBridge {
       }
 
       // Mock response for development
-      console.log(`[ADB MOCK] Executing: ${command}`);
+      console.log(`[ADB MOCK] Executing validated command: ${command}`);
       return `Mock output for: ${command}`;
     } catch (error) {
       throw new Error(`Command execution failed: ${error}`);
@@ -151,9 +189,55 @@ export class ADBBridge {
   }
 
   /**
-   * Pull file from target device
+   * Execute validated getprop command
+   */
+  async executeGetProp(property: string): Promise<string> {
+    // Validate property name format
+    if (!/^ro\.[a-z0-9._]+$/.test(property)) {
+      throw new Error(`Invalid property name: ${property}`);
+    }
+    return await this.executeCommandInternal(`getprop ${property}`);
+  }
+
+  /**
+   * Execute validated package manager list command
+   */
+  async executePackageList(flags?: string): Promise<string> {
+    const command = flags ? `pm list packages ${flags}` : 'pm list packages';
+    return await this.executeCommandInternal(command);
+  }
+
+  /**
+   * Validate path for forensic acquisition
+   * SECURITY: Prevents path traversal and unauthorized file access
+   */
+  private validatePath(path: string): void {
+    // Check for path traversal attempts
+    if (path.includes('..')) {
+      throw new Error('Security: Path traversal not allowed');
+    }
+
+    // Check if path matches any allowed pattern
+    const isAllowed = ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(path));
+    if (!isAllowed) {
+      throw new Error(`Security: Path not allowed for forensic acquisition: ${path}`);
+    }
+
+    // Additional security checks
+    const dangerousChars = /[;&|<>$`(){}[\]\\]/;
+    if (dangerousChars.test(path)) {
+      throw new Error('Security: Path contains forbidden characters');
+    }
+  }
+
+  /**
+   * Pull file from target device with path validation
+   * SECURITY: Validates remote path before file transfer
    */
   async pullFile(remotePath: string, localPath: string): Promise<boolean> {
+    // Validate remote path
+    this.validatePath(remotePath);
+    
     try {
       // @ts-ignore
       if (window.AndroidADBBridge) {
@@ -162,7 +246,7 @@ export class ADBBridge {
       }
 
       // Mock success
-      console.log(`[ADB MOCK] Pulling ${remotePath} to ${localPath}`);
+      console.log(`[ADB MOCK] Pulling validated path: ${remotePath} to ${localPath}`);
       return true;
     } catch (error) {
       console.error(`Failed to pull file: ${error}`);
@@ -171,11 +255,16 @@ export class ADBBridge {
   }
 
   /**
-   * List directory contents on target device
+   * List directory contents on target device with validation
+   * SECURITY: Validates and sanitizes path to prevent command injection
    */
   async listDirectory(path: string): Promise<string[]> {
+    // Validate path before using in command
+    this.validatePath(path);
+    
     try {
-      const output = await this.executeCommand(`ls -la ${path}`);
+      // Execute validated ls command
+      const output = await this.executeCommandInternal(`ls -la ${path}`);
       // Parse ls output
       return output.split('\n').filter(line => line.trim().length > 0);
     } catch (error) {
@@ -186,10 +275,11 @@ export class ADBBridge {
 
   /**
    * Check if target device is rooted
+   * SECURITY: Uses whitelisted command
    */
   async checkRootAccess(): Promise<boolean> {
     try {
-      const output = await this.executeCommand('su -c "id"');
+      const output = await this.executeCommandInternal('su -c "id"');
       return output.includes('uid=0');
     } catch (error) {
       return false;
@@ -214,14 +304,15 @@ export class ADBBridge {
 
   /**
    * Get detailed device information
+   * SECURITY: Uses validated getprop commands
    */
   async getDeviceInfo(): Promise<TargetDeviceInfo | null> {
     try {
-      const model = await this.executeCommand('getprop ro.product.model');
-      const manufacturer = await this.executeCommand('getprop ro.product.manufacturer');
-      const androidVersion = await this.executeCommand('getprop ro.build.version.release');
-      const buildNumber = await this.executeCommand('getprop ro.build.display.id');
-      const serial = await this.executeCommand('getprop ro.serialno');
+      const model = await this.executeGetProp('ro.product.model');
+      const manufacturer = await this.executeGetProp('ro.product.manufacturer');
+      const androidVersion = await this.executeGetProp('ro.build.version.release');
+      const buildNumber = await this.executeGetProp('ro.build.display.id');
+      const serial = await this.executeGetProp('ro.serialno');
       const isRooted = await this.checkRootAccess();
 
       return {

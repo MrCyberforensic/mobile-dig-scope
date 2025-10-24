@@ -220,7 +220,8 @@ export class TargetAcquisitionEngine {
     this.updateProgress('Listing installed apps on target...', 60, 'Applications', 0, 100);
 
     try {
-      const appList = await this.adbBridge.executeCommand('pm list packages -f');
+      // SECURITY: Use validated package list command
+      const appList = await this.adbBridge.executePackageList('-f');
       const filePath = await this.saveEncryptedArtifact(appList, `installed_apps_${Date.now()}.txt`, encryptionKey);
 
       await this.database.addArtifact({
