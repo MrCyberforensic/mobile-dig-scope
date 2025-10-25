@@ -113,14 +113,14 @@ export class ForensicDatabase {
 
     await this.storeData('cases', forensicCase);
     
-    // Create custody log
+    // Create custody log (HMAC key passed separately for security)
+    const hmacKey = ForensicCrypto.calculateHMAC('hmac_key_derivation', encryptionKey);
     await this.createCustodyLog({
       caseId: forensicCase.id,
       action: 'case_created',
       examiner: caseData.examiner,
-      details: `Case "${caseData.name}" created with AES-256 encryption`,
-      hmacKey: encryptionKey
-    });
+      details: `Case "${caseData.name}" created with AES-256 encryption`
+    }, hmacKey);
 
     // Return case and key (key only exists in memory during this operation)
     return { case: forensicCase, encryptionKey };
@@ -163,16 +163,16 @@ export class ForensicDatabase {
 
     await this.storeData('artifacts', fullArtifact);
 
-    // Create custody log
+    // Create custody log (HMAC key derived separately)
     const forensicCase = await this.getCase(artifact.caseId);
     if (forensicCase) {
+      const hmacKey = ForensicCrypto.calculateHMAC('hmac_key_derivation', encryptionKey);
       await this.createCustodyLog({
         caseId: artifact.caseId,
         action: 'artifact_added',
         examiner: forensicCase.examiner,
-        details: `Artifact "${artifact.name}" added (${artifact.type})`,
-        hmacKey: encryptionKey
-      });
+        details: `Artifact "${artifact.name}" added (${artifact.type})`
+      }, hmacKey);
     }
 
     return fullArtifact;
@@ -182,14 +182,16 @@ export class ForensicDatabase {
     return this.getDataByIndex('artifacts', 'caseId', caseId);
   }
 
-  async createCustodyLog(logData: {
-    caseId: string;
-    action: CustodyLog['action'];
-    examiner: string;
-    details: string;
-    deviceIdentifier?: string;
-    hmacKey: string;
-  }): Promise<CustodyLog> {
+  async createCustodyLog(
+    logData: {
+      caseId: string;
+      action: CustodyLog['action'];
+      examiner: string;
+      details: string;
+      deviceIdentifier?: string;
+    },
+    hmacKey: string
+  ): Promise<CustodyLog> {
     const timestamp = new Date().toISOString();
     const logEntry = {
       id: crypto.randomUUID(),
@@ -207,7 +209,7 @@ export class ForensicDatabase {
       ...logEntry,
       hmacSignature: undefined
     });
-    logEntry.hmacSignature = ForensicCrypto.calculateHMAC(dataToSign, logData.hmacKey);
+    logEntry.hmacSignature = ForensicCrypto.calculateHMAC(dataToSign, hmacKey);
 
     await this.storeData('custodyLogs', logEntry);
     return logEntry;

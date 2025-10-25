@@ -67,14 +67,14 @@ export class AcquisitionEngine {
     }
 
     try {
-      // Create custody log for acquisition start
+      // Create custody log for acquisition start (HMAC key derived internally)
+      const startHmacKey = ForensicCrypto.calculateHMAC('hmac_key_derivation', encryptionKey);
       await this.database.createCustodyLog({
         caseId,
         action: 'acquisition_started',
         examiner: forensicCase.examiner,
-        details: 'Logical acquisition started',
-        hmacKey: encryptionKey
-      });
+        details: 'Logical acquisition started'
+      }, startHmacKey);
 
       // Simulate acquisition stages
       await this.acquireContacts(caseId, encryptionKey);
@@ -86,13 +86,13 @@ export class AcquisitionEngine {
       await this.acquireLocationData(caseId, encryptionKey);
 
       // Create custody log for acquisition completion
+      const completionHmacKey = ForensicCrypto.calculateHMAC('hmac_key_derivation', encryptionKey);
       await this.database.createCustodyLog({
         caseId,
         action: 'acquisition_completed',
         examiner: forensicCase.examiner,
-        details: 'Logical acquisition completed successfully',
-        hmacKey: encryptionKey
-      });
+        details: 'Logical acquisition completed successfully'
+      }, completionHmacKey);
 
       this.updateProgress('Acquisition completed', 100, 'Complete', 100, 100);
     } catch (error) {

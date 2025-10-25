@@ -102,4 +102,36 @@ export class SecureKeyManager {
     // Derive and cache
     return await this.deriveKeyForCase(caseId, password);
   }
+
+  /**
+   * Derive separate HMAC key for custody log signing
+   * SECURITY: HMAC key is separate from encryption key
+   */
+  async deriveHMACKey(caseId: string, password?: string): Promise<string> {
+    const cached = this.keyCache.get(caseId);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      // Derive HMAC key from encryption key
+      return ForensicCrypto.calculateHMAC('hmac_key_derivation', cached.key);
+    }
+
+    if (!password) {
+      throw new Error('Password required to derive HMAC key');
+    }
+
+    const forensicCase = await this.database.getCase(caseId);
+    if (!forensicCase?.encryptionSalt) {
+      throw new Error('Case not found or missing encryption salt');
+    }
+
+    const encryptionKey = ForensicCrypto.deriveKey(password, forensicCase.encryptionSalt);
+    
+    // Cache the encryption key
+    this.keyCache.set(caseId, {
+      key: encryptionKey,
+      timestamp: Date.now()
+    });
+
+    // Derive and return HMAC key
+    return ForensicCrypto.calculateHMAC('hmac_key_derivation', encryptionKey);
+  }
 }
